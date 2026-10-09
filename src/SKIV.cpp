@@ -63,6 +63,8 @@
 #include <tabs/settings.h>
 
 #include <utility/registry.h>
+#include <utility/i18n.h>
+#include <dwmapi.h>
 #include <utility/updater.h>
 
 #include <tabs/common_ui.h>
@@ -87,6 +89,7 @@ bool  RecreateSwapChainsPending = false;
 bool  RecreateWin32Windows      = false;
 bool  RepositionSKIF            = false;
 bool  snipFollowPending         = false; // WM_SKIF_SNIP_FOLLOW has been posted but not yet handled
+int   snipUncloakFrames         = 0;     // Frames to present before the snipping window, moved to another monitor, is shown again
 bool  RespectMonBoundaries      = false;
 bool  changedHiDPIScaling       = false;
 bool  invalidateFonts           = false;
@@ -125,7 +128,7 @@ UINT SHELL_TASKBAR_BUTTON_CREATED = 0; // TaskbarButtonCreated
 
 // --- App Mode (regular)
 ImVec2 SKIF_vecRegularMode          = ImVec2 (0.0f, 0.0f);
-ImVec2 SKIF_vecRegularModeDefault   = ImVec2 (1000.0f, 944.0f);   // Does not include the status bar
+ImVec2 SKIF_vecRegularModeDefault   = ImVec2 ( 800.0f, 560.0f);   // Does not include the status bar
 ImVec2 SKIF_vecRegularModeAdjusted  = SKIF_vecRegularModeDefault; // Adjusted for status bar and tooltips (NO DPI scaling!)
 // --- Variables
 ImVec2 SKIF_vecCurrentPosition      = ImVec2 (0.0f, 0.0f); // Gets updated after ImGui::EndFrame()
@@ -547,16 +550,16 @@ void SKIF_Shell_CreateUpdateNotifyMenu (void)
   hMenu = CreatePopupMenu ( );
   if (hMenu != NULL)
   {
-    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_SNIP_REGION,     L"Capture region");
-    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_SNIP_SCREEN,     L"Capture screen");
+    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_SNIP_REGION,     TRW (L"Capture region", L"Снимок области"));
+    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_SNIP_SCREEN,     TRW (L"Capture screen", L"Снимок экрана"));
 
   //AppendMenu (hMenu, MF_STRING | ((svcStopped)         ? MF_CHECKED | MF_GRAYED :                                    0x0), SKIF_NOTIFY_STOP,          L"Stop Service");
   //AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
   //AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_RUN_UPDATER,     L"Check for updates...");
 
     AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_OPEN,            L"Settings");
-    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_EXIT,            L"Exit");
+    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_OPEN,            TRW (L"Settings",  L"Настройки"));
+    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_EXIT,            TRW (L"Quit SKIS", L"Выйти из SKIS"));
   }
 }
 
@@ -571,7 +574,7 @@ void SKIF_Shell_CreateNotifyIcon (void)
   niData.hIcon        = LoadIcon (hModSKIF, MAKEINTRESOURCE (IDI_SKIV));
   niData.hWnd         = SKIF_Notify_hWnd;
   niData.uVersion     = NOTIFYICON_VERSION_4;
-  wcsncpy_s (niData.szTip, 128, L"SKIV", 128);
+  wcsncpy_s (niData.szTip, 128, L"SKIS", 128);
 
   niData.uCallbackMessage = WM_SKIF_NOTIFY_ICON;
 
@@ -1898,6 +1901,10 @@ wWinMain ( _In_     HINSTANCE hInstance,
       }
       */
 
+      // The settings window needs room for its section list and rows
+      else if (! _registry._SnippingMode)
+        ImGui::SetNextWindowSizeConstraints (ImVec2 (760.0f, 400.0f) * SKIF_ImGui_GlobalDPIScale, ImVec2 (FLT_MAX, FLT_MAX));
+
       // The rest of the frames are uncapped
       else
         ImGui::SetNextWindowSizeConstraints (wnd_minimum_size, ImVec2 (FLT_MAX, FLT_MAX));
@@ -2142,18 +2149,53 @@ wWinMain ( _In_     HINSTANCE hInstance,
 
       static bool last_snip_state = false;
 
-      // Implicitly cancel snipping if focus changes during snipping
-      if (_registry._SnippingMode && last_snip_state && GetFocus () != SKIF_ImGui_hWnd)
+      // Implicitly cancel snipping if another app comes to the foreground during
+      //   snipping. Keyboard focus is not checked: right after the hotkey the
+      //     snipping window is already in the foreground, but Windows has not
+      //       given it the focus yet, which cancelled every first attempt.
+      static bool snip_was_foreground = false;
+
+      if (_registry._SnippingMode && last_snip_state)
       {
-        _registry._SnippingMode     = false;
-        _registry._SnippingModeExit =  true;
+        HWND  hWndFg = GetForegroundWindow ();
+        DWORD dwPid  = 0;
+        GetWindowThreadProcessId (hWndFg, &dwPid);
+
+        if (dwPid == GetCurrentProcessId ())
+        {
+          snip_was_foreground = true;
+
+          if (hWndFg == SKIF_ImGui_hWnd && GetFocus () == NULL)
+            SetFocus (SKIF_ImGui_hWnd);
+        }
+
+        else if (snip_was_foreground)
+        {
+          wchar_t wszClass [128] = { };
+          GetClassNameW (hWndFg, wszClass, 127);
+          PLOG_INFO << "Snipping cancelled: another app is in the foreground (" << hWndFg << ", class " << wszClass << ")";
+
+          _registry._SnippingMode     = false;
+          _registry._SnippingModeExit =  true;
+        }
       }
+
+      else if (! _registry._SnippingMode)
+        snip_was_foreground = false;
 
       auto _RestoreWindow = [&](void) -> void
       {
         _registry._SnippingMode       = false;
         _registry._SnippingModeExit   = false;
         _registry._SnippingModeInit   =  true;
+
+        // Never leave the window hidden from a monitor switch
+        extern int snipUncloakFrames;
+        if (snipUncloakFrames > 0)
+        {   snipUncloakFrames = 0;
+          BOOL cloak = FALSE;
+          DwmSetWindowAttribute (SKIF_ImGui_hWnd, DWMWA_CLOAK, &cloak, sizeof (cloak));
+        }
 
         extern HWND hwndBeforeSnip;
         extern HWND hwndTopBeforeSnip;
@@ -2193,9 +2235,11 @@ wWinMain ( _In_     HINSTANCE hInstance,
         if (iconicBeforeSnip)
           ShowWindowAsync (SKIF_ImGui_hWnd, SW_SHOWMINNOACTIVE);
 
+        // Back to the tray for real: a minimized window would keep a taskbar
+        //   button (WS_EX_APPWINDOW) after every snip
         if (trayedBeforeSnip)
         {
-          ShowWindowAsync (SKIF_ImGui_hWnd, SW_SHOWMINNOACTIVE);
+          ShowWindowAsync (SKIF_ImGui_hWnd, SW_HIDE);
           SKIF_isTrayed = true;
         }
 
@@ -2444,166 +2488,11 @@ wWinMain ( _In_     HINSTANCE hInstance,
           _selectFile = false; // Reset on each capture (for now)
         }
 
-        static bool toolbar = true; // HDR_Image && SKIV_HDR
-        if (toolbar)
-        {
-          static ImVec2 vSnippingToolbarSize = ImVec2 (128.0f, 32.0f);
+        // Screenshot-only fork: the toolbar is drawn in the style of the settings window
+        extern bool SKIV_UI_DrawSnipToolbar (bool* save_to_disk, bool* select_file, bool show_hdr, bool hotkey_save, bool hotkey_select);
 
-          ImGui::SetNextWindowPos  (ImVec2 (ImGui::GetCurrentWindow ()->Pos.x         +
-                                            ImGui::GetCurrentWindow ()->Size.x / 2.0f -
-                                                        vSnippingToolbarSize.x / 2.0f,
-                                             ImGui::GetCurrentWindow ()->Pos.y        +
-                                              ImGui::GetStyle ().ItemSpacing.y        +
-                                                        vSnippingToolbarSize.y / 2.0f));
-
-          ImGui::PushStyleColor    (ImGuiCol_ChildBg, ImGui::GetStyleColorVec4 (ImGuiCol_WindowBg));
-          ImGui::BeginChild        ("Snipping Tool###SnippingToolbar", ImVec2 (0.0f, 0.0f),
-                                      ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeX |
-                                      ImGuiChildFlags_AutoResizeY | ((_registry.bUIBorders) ? ImGuiChildFlags_Border
-                                                                                            : ImGuiChildFlags_None
-                                                                  | ImGuiChildFlags_FrameStyle),
-                                      ImGuiWindowFlags_NoScrollbar  |
-                                      ImGuiWindowFlags_NoDecoration |
-                                      ImGuiWindowFlags_AlwaysAutoResize);
-
-          ImGui::BringWindowToDisplayFront (ImGui::GetCurrentWindow ());
-
-          ImGui::PopStyleColor     ();
-          ImGui::BeginGroup        ();
-          ImGui::PushStyleColor    (ImGuiCol_Text,    ImColor (1.0f, 1.0f, 1.0f, 1.0f).Value);
-          ImGui::TextUnformatted   (ICON_FA_SCISSORS " Snipping Tool");
-          ImGui::Separator         ();
-          ImGui::PopStyleColor     ();
-
-          ImGui::Spacing           ();
-          ImGui::SameLine          ();
-
-          // Save To Disk
-          if (hotkeyCtrlS)
-            _saveToDisk = ! _saveToDisk;
-
-          ImGui::PushStyleColor    (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_SKIF_Info));
-          ImGui::Checkbox          (" " ICON_FA_FLOPPY_DISK "###ToolbarSaveToDisk", &_saveToDisk);
-          ImGui::PopStyleColor     ();
-          if (ImGui::IsItemHovered ())
-          {
-            ImGui::BeginTooltip    ();
-            ImGui::TextUnformatted ("Save captured screenshot?");
-            ImGui::SameLine        ();
-            ImGui::TextColored     (ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled), "Ctrl+S");
-            ImGui::Separator       ();
-            ImGui::TextUnformatted ("Folder:");
-            ImGui::SameLine        ();
-            ImGui::TextUnformatted (_path_cache.skiv_screenshotsA);
-            ImGui::EndTooltip      ();
-          }
-
-          ImGui::SameLine          ();
-
-          // Show File In Explorer
-          if (! _saveToDisk)
-            SKIF_ImGui_PushDisableState ();
-          else if (hotkeyCtrlE)
-            _selectFile = ! _selectFile;
-
-          static bool _tOpenFolderDisabled = false;
-          ImGui::PushStyleColor    (ImGuiCol_Text, ImColor(255, 207, 72).Value);
-          ImGui::Checkbox          (" " ICON_FA_FOLDER_OPEN "###ToolbarOpenFolder", &_selectFile);
-          ImGui::PopStyleColor     ();
-          if (ImGui::IsItemHovered ())
-          {
-            ImGui::BeginTooltip    ();
-            ImGui::TextUnformatted ("Open folder after capture?");
-            ImGui::SameLine        ();
-            ImGui::TextColored     (ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled), "Ctrl+E");
-            ImGui::EndTooltip      ();
-          }
-
-          if (! _saveToDisk)
-            SKIF_ImGui_PopDisableState ();
-
-          // HDR Tonemapping
-          if (HDR_Image && SKIV_HDR)
-          {
-            ImGui::SameLine          ();
-            ImGui::SeparatorEx       (ImGuiSeparatorFlags_Vertical);
-            ImGui::SameLine          ();
-            ImGui::BeginGroup        ();
-            ImGui::TextColored       (ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled), "HDR:");
-            ImGui::SameLine          ();
-            ImGui::RadioButton       ("Keep HDR",       &_registry._SnippingTonemapsHDR, 0);
-            if (ImGui::IsItemHovered ())
-            {
-              ImGui::BeginTooltip    ();
-              ImGui::TextUnformatted ("HDR PNG may have Compatibility Issues");
-              ImGui::Separator       ();
-              ImGui::BulletText      ("Generally the clipboard contents can only be pasted into browser-derived software (i.e. built using Chromium, Electron) and SKIV.");
-              ImGui::BulletText      ("Some browsers cannot interpret HDR10 PNG correctly and the image will not render in HDR when pasted.");
-              ImGui::EndTooltip      ();
-            }
-            ImGui::SameLine          ();
-            ImGui::RadioButton       ("Tone-map to SDR", &_registry._SnippingTonemapsHDR, 1);
-            if (ImGui::IsItemHovered ())
-            {
-              ImGui::BeginTooltip    ();
-              ImGui::TextUnformatted ("High Quality HDR to SDR Tone Map");
-              ImGui::Separator       ();
-              ImGui::BulletText      ("Stored in the clipboard as a Bitmap for maximum compatibility with SDR software.");
-              ImGui::EndTooltip      ();
-            }
-            ImGui::SameLine          ();
-            ImGui::RadioButton       ("Auto",           &_registry._SnippingTonemapsHDR, 2);
-            if (ImGui::IsItemHovered ())
-            {
-              ImGui::BeginTooltip    ();
-              ImGui::TextUnformatted ("Use SDR for Snips at or Below Windows SDR Desktop Luminance");
-              ImGui::Separator       ();
-              ImGui::BulletText      ("For HDR range content, captures an unaltered HDR image");
-              ImGui::EndTooltip      ();
-            }
-            ImGui::EndGroup          ();
-          }
-
-          ImGui::SameLine          ();
-          ImGui::SeparatorEx       (ImGuiSeparatorFlags_Vertical);
-          ImGui::SameLine          ();
-
-          // X (Close) Button
-          ImGui::BeginGroup        ();
-          ImGui::PushStyleColor   (ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4 (ImGuiCol_SKIF_Failure));
-          ImGui::PushStyleColor   (ImGuiCol_ButtonActive,  ImGui::GetStyleColorVec4 (ImGuiCol_SKIF_Failure) * ImVec4(1.2f, 1.2f, 1.2f, 1.0f));
-
-          static bool closeButtonHoverActive = false;
-
-          if (_registry._StyleLightMode && closeButtonHoverActive)
-            ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_WindowBg)); //ImVec4 (0.9F, 0.9F, 0.9F, 1.0f));
-
-          if (ImGui::Button (ICON_FA_XMARK, ImVec2 ( 30.0f * SKIF_ImGui_GlobalDPIScale, 0.0f ) )) // HotkeyEsc is situational
-            _registry._SnippingModeExit = true;
-
-          if (_registry._StyleLightMode)
-          {
-            if (closeButtonHoverActive)
-              ImGui::PopStyleColor ( );
-
-            closeButtonHoverActive = (ImGui::IsItemHovered () || ImGui::IsItemActivated ());
-          }
-
-          ImGui::PopStyleColor     (2);
-          ImGui::EndGroup          ();
-          // End of X (Close) Button
-
-          ImGui::EndGroup          ();
-          if ( ImGui::IsWindowHovered () ||
-               ImGui::IsItemActive    () )
-          {
-            bHoveringSnipToolbar = true;
-          }
-
-          vSnippingToolbarSize = ImGui::GetWindowSize ();
-          ImGui::EndChild          ();
-
-        }
+        bHoveringSnipToolbar =
+          SKIV_UI_DrawSnipToolbar (&_saveToDisk, &_selectFile, HDR_Image && SKIV_HDR, hotkeyCtrlS, hotkeyCtrlE);
 
         if (! bHoveringSnipToolbar)
         {
@@ -2738,19 +2627,9 @@ wWinMain ( _In_     HINSTANCE hInstance,
           if (SKIF_Tab_ChangeTo == UITab_Settings || RefreshSettingsTab)
             SKIF_Util_IsHDRActive (NULL); // true
 
-          ImGui::PushStyleVar (ImGuiStyleVar_FramePadding, ImVec2 (15.0f, 15.0f) * SKIF_ImGui_GlobalDPIScale);
-          bool show = SKIF_ImGui_BeginMainChildFrame ( );
-          ImGui::PopStyleVar  ( );
-
-          if (show)
-          {
-            SKIF_UI_Tab_DrawSettings ( );
-
-            SKIF_ImGui_AutoScroll  (true, SKIF_ImGuiAxis_Both);
-            SKIF_ImGui_UpdateScrollbarState ( );
-
-            ImGui::EndChild        ( );
-          }
+          // Screenshot-only fork: the settings window draws its own title bar,
+          //   section list and scrolling area over the whole window
+          SKIF_UI_Tab_DrawSettings ( );
 
           if (SKIF_Tab_ChangeTo == UITab_Settings)
           {
@@ -2826,7 +2705,9 @@ wWinMain ( _In_     HINSTANCE hInstance,
 
       // Top right window buttons
 
-      if (_registry.bUICaptionButtons)
+      // The settings window has a close button of its own
+      if (_registry.bUICaptionButtons && ! _registry._SnippingMode &&
+          SKIF_Tab_Selected != UITab_Settings && SKIF_Tab_ChangeTo != UITab_Settings)
       {
         ImVec2 window_btn_size = ImVec2 (
           68.0f * SKIF_ImGui_GlobalDPIScale,
@@ -3793,6 +3674,11 @@ wWinMain ( _In_     HINSTANCE hInstance,
       snapVtxBufferSize = newVtxBufferSize;
     }
 
+    // The snipping window, moved to another monitor, is hidden until it has
+    //   presented there, so keep presenting even if nothing on it changed
+    if (snipUncloakFrames > 0)
+      bRefresh = true;
+
     // Update, Render and Present the main and any additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
@@ -3855,6 +3741,13 @@ wWinMain ( _In_     HINSTANCE hInstance,
       // This renders any additional viewports (index 1+)
       ImGui::RenderPlatformWindowsDefault (); // Also eventually calls ImGui_ImplDX11_SwapBuffers ( ) which Presents ( )
 
+      // The snipping window has presented on its new monitor, show it again
+      if (snipUncloakFrames > 0 && --snipUncloakFrames == 0 && SKIF_ImGui_hWnd != NULL)
+      {
+        BOOL cloak = FALSE;
+        DwmSetWindowAttribute (SKIF_ImGui_hWnd, DWMWA_CLOAK, &cloak, sizeof (cloak));
+      }
+
       // Ensure we also have a dragdrop target on the main window
       if (SKIF_ImGui_hWnd != NULL)
         _drag_drop.Register (SKIF_ImGui_hWnd);
@@ -3874,12 +3767,11 @@ wWinMain ( _In_     HINSTANCE hInstance,
       }
     }
 
+    // Screenshot-only fork: the window is first focused when it enters snipping
+    //   mode, and centering it at the regular size then broke the very first
+    //     snip after launch. WM_SKIF_RESTORE places the settings window itself.
     if ( startedMinimized && SKIF_ImGui_IsFocused ( ) )
-    {
       startedMinimized = false;
-      if ( _registry.bOpenAtCursorPosition )
-        RepositionSKIF = true;
-    }
 
     // Release any leftover resources from last frame
     IUnknown* pResource = nullptr;
@@ -3922,6 +3814,8 @@ wWinMain ( _In_     HINSTANCE hInstance,
       processAdditionalFrames = ImGui::GetFrameCount ( ) + 3; // If the cover is currently undergoing a fade effect
     else if (ImGui::notifications.size() > 0)
       processAdditionalFrames = ImGui::GetFrameCount ( ) + 3; // If we have any visible notifications
+    else if (snipUncloakFrames > 0)
+      processAdditionalFrames = ImGui::GetFrameCount ( ) + 3; // If the snipping window waits to be shown on its new monitor
     else if (addAdditionalFrames > 0)
       processAdditionalFrames = ImGui::GetFrameCount ( ) + addAdditionalFrames; // Used when the cover is currently loading in, or the update check just completed
     /*
@@ -4561,7 +4455,8 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
   auto _EnterSnippingMode = [&](CaptureMode mode) -> void
   {
-    PLOG_VERBOSE << "Received request to capture " << ((mode == CaptureMode_Window) ? "window" : (mode == CaptureMode_Region) ? "region" : "screen") << "...";
+    PLOG_INFO << "Received request to capture " << ((mode == CaptureMode_Window) ? "window" : (mode == CaptureMode_Region) ? "region" : "screen")
+              << " (already snipping: " << _registry._SnippingMode << ", trayed: " << SKIF_isTrayed << ")";
 
     if (! std::exchange (_registry._SnippingMode, true))
     {
@@ -4674,11 +4569,13 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
           hwndTopBeforeSnip = GetWindow (SKIF_ImGui_hWnd, GW_HWNDPREV);
 
-          trayedBeforeSnip = SKIF_isTrayed;
+          // Started in the tray, the window is hidden without being marked as
+          //   trayed; it has to be shown for the snip and hidden again after it
+          trayedBeforeSnip = SKIF_isTrayed || ! IsWindowVisible (SKIF_ImGui_hWnd);
           iconicBeforeSnip =
             IsIconic (SKIF_ImGui_hWnd);
 
-          if (SKIF_isTrayed)
+          if (trayedBeforeSnip)
           {   SKIF_isTrayed = false;
             ShowWindow (SKIF_ImGui_hWnd, SW_SHOWNORMAL);
           }
@@ -4693,6 +4590,8 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
           SKIF_ImGui_SetFullscreen (SKIF_ImGui_hWnd, true, monitor);
           UpdateWindow             (SKIF_ImGui_hWnd);
+
+          PLOG_INFO << "Entered region snipping (foreground " << GetForegroundWindow () << ", snipping window " << SKIF_ImGui_hWnd << ")";
 
         //selection_rect.Min = ImVec2 (0.0f, 0.0f);
         //selection_rect.Max = ImVec2 (0.0f, 0.0f);
@@ -5033,6 +4932,13 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
             if (SUCCEEDED (hr))
             {
+              // Hide the window while it moves: until it has presented a frame on
+              //   the new monitor, DWM keeps showing the previous monitor's image
+              //     there. The frozen monitor window below shows the right one.
+              BOOL cloak = TRUE;
+              DwmSetWindowAttribute (SKIF_ImGui_hWnd, DWMWA_CLOAK, &cloak, sizeof (cloak));
+              snipUncloakFrames = 3;
+
               SKIF_ImGui_SetFullscreen (SKIF_ImGui_hWnd, true, hMonCursor);
               SetWindowPos             (SKIF_ImGui_hWnd, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE);
               UpdateWindow             (SKIF_ImGui_hWnd);
@@ -5114,13 +5020,17 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         POINT ptCursor = { };
         GetCursorPos (&ptCursor);
 
+        HMONITOR    hMonCursor = MonitorFromPoint (ptCursor, MONITOR_DEFAULTTONEAREST);
         MONITORINFO minfo = { .cbSize = sizeof (MONITORINFO) };
-        if (GetMonitorInfo (MonitorFromPoint (ptCursor, MONITOR_DEFAULTTONEAREST), &minfo))
+        if (GetMonitorInfo (hMonCursor, &minfo))
         {
           const RECT& work = minfo.rcWork;
 
-          int width  = std::min (static_cast <int> (SKIF_vecRegularModeDefault.x * SKIF_ImGui_GlobalDPIScale), static_cast <int> (work.right  - work.left));
-          int height = std::min (static_cast <int> (SKIF_vecRegularModeDefault.y * SKIF_ImGui_GlobalDPIScale), static_cast <int> (work.bottom - work.top));
+          // Size for the DPI of the monitor the window opens on, not the one it was on
+          float dpi = (_registry.bDPIScaling) ? ImGui_ImplWin32_GetDpiScaleForMonitor (hMonCursor) : 1.0f;
+
+          int width  = std::min (static_cast <int> (SKIF_vecRegularModeDefault.x * dpi), static_cast <int> (work.right  - work.left));
+          int height = std::min (static_cast <int> (SKIF_vecRegularModeDefault.y * dpi), static_cast <int> (work.bottom - work.top));
           int left   = work.left + ((work.right  - work.left) - width)  / 2;
           int top    = work.top  + ((work.bottom - work.top)  - height) / 2;
 
@@ -5282,6 +5192,9 @@ SKIF_Notify_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
           // before the application calls TrackPopupMenu or TrackPopupMenuEx. Otherwise, the menu will not disappear
           // when the user clicks outside of the menu or the window that created the menu (if it is visible).
           SetForegroundWindow (hWnd);
+
+          // Rebuilt every time, in case the UI language was changed
+          SKIF_Shell_CreateUpdateNotifyMenu ( );
 
           // TrackPopupMenu blocks the app until TrackPopupMenu returns
           TrackPopupMenu (

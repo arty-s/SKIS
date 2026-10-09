@@ -378,7 +378,7 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="resources\icons\SKIV.ico">
+    <Image Include="resources\icons\SKIS.ico">
       <Filter>Resource Files\Icons</Filter>
     </Image>
   </ItemGroup>

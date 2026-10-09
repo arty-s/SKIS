@@ -287,6 +287,14 @@ struct SKIF_RegistrySettings {
     SKIF_MakeRegKeyI ( LR"(SOFTWARE\Kaldaien\Special K\Viewer\)",
                          LR"(Style)" );
 
+  KeyValue <int> regKVLanguage =
+    SKIF_MakeRegKeyI ( LR"(SOFTWARE\Kaldaien\Special K\Viewer\)",
+                         LR"(Language)" );
+
+  KeyValue <int> regKVSnippingHDR =
+    SKIF_MakeRegKeyI ( LR"(SOFTWARE\Kaldaien\Special K\Viewer\)",
+                         LR"(Snipping HDR Mode)" );
+
   KeyValue <int> regKVLogging =
     SKIF_MakeRegKeyI ( LR"(SOFTWARE\Kaldaien\Special K\Viewer\)",
                          LR"(Logging)" );
@@ -457,7 +465,8 @@ struct SKIF_RegistrySettings {
   // Default settings (multiple options)
 //int iImageScaling            =   2;   // 0 = None,                        1 = Fill,                   2 = Fit (default),               3 = Stretch
   int iStyle                   =   0;   // 0 = Dynamic,                     1 = SKIF Dark,              2 = SKIF Light,                  3 = ImGui Classic,                  4 = ImGui Dark
-  int iStyleTemp               =   0;   // Used to temporary hold changes in the style during the current session
+  int iStyleTemp               =   0;
+  int iLanguage                =   0;   // 0 = Follow Windows,              1 = English,                2 = Russian   // Used to temporary hold changes in the style during the current session
   int iDarkenImages            =   0;   // 0 = Never,                       1 = Always,                 2 = On mouse hover
   int iCheckForUpdates         =   1;   // 0 = Never,                       1 = Weekly,                 2 = On each launch
   int iLogging                 =   4;   // 0 = None,                        1 = Fatal,                  2 = Error,                       3 = Warning,                        4 = Info,       5 = Debug,       6 = Verbose
@@ -560,7 +569,7 @@ struct SKIF_RegistrySettings {
   bool _SnippingModeInit            =  true;
   bool _SnippingModeExit            = false;
   bool _SnippingModeTempHDR         = false;
-  int  _SnippingTonemapsHDR         = 2;
+  int  _SnippingTonemapsHDR         = 1;   // 0 = Keep HDR, 1 = Tone-map to SDR, 2 = Auto
 
   // Keybindings
 

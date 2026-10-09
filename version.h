@@ -49,11 +49,11 @@
 #define SKIV_PRODUCT_VERSION  SKIV_MAJOR,SKIV_MINOR,SKIV_BUILD,SKIV_REV
 
 
-#define SKIV_WINDOW_TITLE_A          "Special K Image Viewer"
-#define SKIV_WINDOW_TITLE_W       _L("Special K Image Viewer")
+#define SKIV_WINDOW_TITLE_A          "Special K Image Screenshot"
+#define SKIV_WINDOW_TITLE_W       _L("Special K Image Screenshot")
 #define SKIV_WINDOW_TITLE             SKIV_WINDOW_TITLE_W
-#define SKIV_WINDOW_TITLE_SHORT_A    "SKIV"
-#define SKIV_WINDOW_TITLE_SHORT_W _L("SKIV")
+#define SKIV_WINDOW_TITLE_SHORT_A    "SKIS"
+#define SKIV_WINDOW_TITLE_SHORT_W _L("SKIS")
 #define SKIV_WINDOW_TITLE_SHORT       SKIV_WINDOW_TITLE_SHORT_W
 #define SKIV_WINDOW_HASH          "###Special K Image Viewer"
 #define SKIV_WINDOW_TITLE_HASH        SKIV_WINDOW_TITLE_SHORT_A SKIV_WINDOW_HASH

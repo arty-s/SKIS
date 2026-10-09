@@ -1118,16 +1118,46 @@ using namespace DirectX;
 
   // Process path
 
+  // The names come from other apps, and a window title can be anything: keep
+  //   them from adding folders such as "..\..\x". Only the pattern may do that.
+  auto _SafeName = [](std::wstring name) -> std::wstring
+  {
+    // Apply the clean-up the whole name gets below first, as turning ':' into
+    //   '.' or dropping '?' could otherwise make ".." out of "::" or ".?."
+    std::replace (name.begin (), name.end (), L':', L'.');
+
+    name.erase (std::remove_if (name.begin (), name.end (), [](wchar_t c) {
+      return (c == L'*' || c == L'?' || c == L'"' || c == L'<' || c == L'>' || c == L'|');
+    }), name.end ());
+
+    std::replace (name.begin (), name.end (), L'\\', L' ');
+    std::replace (name.begin (), name.end (), L'/',  L' ');
+
+    for (size_t dots = name.find (L".."); dots != std::wstring::npos; dots = name.find (L".."))
+      name.replace (dots, 2, L".");
+
+    // Two names side by side in the pattern must not form ".." either
+    while (! name.empty () && name.front () == L'.') name.erase (0, 1);
+    while (! name.empty () && name.back  () == L'.') name.pop_back ();
+
+    return name;
+  };
+
+  const std::wstring nameCustom     = _SafeName (capture_data._names.custom),
+                     nameProduct    = _SafeName (capture_data._names.product),
+                     nameExecutable = _SafeName (capture_data._names.executable),
+                     nameWindow     = _SafeName (capture_data._names.window);
+
   // Automatic app name population...
   pos = wsFilename.find (pApp);
   if (pos != std::wstring::npos)
   {
-    if (! capture_data._names.custom.empty())
-      wsFilename.replace (pos, pApp.length(), capture_data._names.custom);
-    else if (! capture_data._names.product.empty())
-      wsFilename.replace (pos, pApp.length(), capture_data._names.product);
-    else if (! capture_data._names.executable.empty())
-      wsFilename.replace (pos, pApp.length(), capture_data._names.executable);
+    if (! nameCustom.empty())
+      wsFilename.replace (pos, pApp.length(), nameCustom);
+    else if (! nameProduct.empty())
+      wsFilename.replace (pos, pApp.length(), nameProduct);
+    else if (! nameExecutable.empty())
+      wsFilename.replace (pos, pApp.length(), nameExecutable);
     else
       wsFilename.replace (pos, pApp.length(), L"unknown");
   }
@@ -1135,17 +1165,17 @@ using namespace DirectX;
   // Product name
   pos = wsFilename.find (pPro);
   if (pos != std::wstring::npos)
-    wsFilename.replace (pos, pPro.length(), (capture_data._names.product.empty()) ? L"unknown" : capture_data._names.product);
+    wsFilename.replace (pos, pPro.length(), (nameProduct.empty()) ? L"unknown" : nameProduct);
 
   // Executable name
   pos = wsFilename.find (pExe);
   if (pos != std::wstring::npos)
-    wsFilename.replace (pos, pExe.length(), (capture_data._names.executable.empty()) ? L"unknown" : capture_data._names.executable);
+    wsFilename.replace (pos, pExe.length(), (nameExecutable.empty()) ? L"unknown" : nameExecutable);
 
   // Window title
   pos = wsFilename.find (pWnd);
   if (pos != std::wstring::npos)
-    wsFilename.replace (pos, pWnd.length(), (capture_data._names.window.empty()) ? L"unknown" : capture_data._names.window);
+    wsFilename.replace (pos, pWnd.length(), (nameWindow.empty()) ? L"unknown" : nameWindow);
 
   // Locale-aware date
   pos = wsFilename.find (pDate);

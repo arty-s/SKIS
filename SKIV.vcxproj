@@ -87,6 +87,7 @@
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <TargetName>SKIS</TargetName>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);.\resources\;.\packages_misc\;.\packages_misc\gsl\</IncludePath>
     <OutDir>Builds\</OutDir>
     <IntDir>Builds\$(Platform)-$(Configuration)\</IntDir>
@@ -106,6 +107,7 @@
     <PreBuildEventUseInBuild>false</PreBuildEventUseInBuild>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <TargetName>SKIS</TargetName>
     <LinkIncremental>false</LinkIncremental>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);.\resources\;.\packages_misc\</IncludePath>
     <OutDir>Builds\</OutDir>
@@ -141,7 +143,7 @@
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <OpenMPSupport>false</OpenMPSupport>
-      <AdditionalOptions>/Ob3 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Ob3 %(AdditionalOptions)</AdditionalOptions>
       <UseUnicodeForAssemblerListing>true</UseUnicodeForAssemblerListing>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -202,7 +204,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <CreateHotpatchableImage>false</CreateHotpatchableImage>
       <OpenMPSupport>false</OpenMPSupport>
-      <AdditionalOptions>/Ob3 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Ob3 %(AdditionalOptions)</AdditionalOptions>
       <UseUnicodeForAssemblerListing>true</UseUnicodeForAssemblerListing>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -268,7 +270,7 @@
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <OpenMPSupport>false</OpenMPSupport>
-      <AdditionalOptions>/Ob3 /Zf %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Ob3 /Zf %(AdditionalOptions)</AdditionalOptions>
       <CreateHotpatchableImage>true</CreateHotpatchableImage>
       <UseUnicodeForAssemblerListing>true</UseUnicodeForAssemblerListing>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -343,7 +345,7 @@
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <OpenMPSupport>false</OpenMPSupport>
-      <AdditionalOptions>/Ob3 /Zf %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Ob3 /Zf %(AdditionalOptions)</AdditionalOptions>
       <UseUnicodeForAssemblerListing>true</UseUnicodeForAssemblerListing>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode>true</SupportJustMyCode>
@@ -442,6 +444,7 @@
     <ClInclude Include="resources\fonts\fa_621b.h" />
     <ClInclude Include="include\utility\games.h" />
     <ClInclude Include="include\utility\registry.h" />
+    <ClInclude Include="include\utility\i18n.h" />
     <ClInclude Include="include\utility\skif_imgui.h" />
     <ClInclude Include="include\utility\utility.h" />
     <ClInclude Include="resources\fonts\fa_brands_400.ttf.h" />
@@ -485,6 +488,7 @@
     <ClCompile Include="src\utility\gamepad.cpp" />
     <ClCompile Include="src\utility\image.cpp" />
     <ClCompile Include="src\utility\registry.cpp" />
+    <ClCompile Include="src\utility\i18n.cpp" />
     <ClCompile Include="src\utility\skif_imgui.cpp" />
     <ClCompile Include="src\utility\utility.cpp" />
     <ClCompile Include="src\utility\fsutil.cpp" />
@@ -503,7 +507,7 @@
     <ResourceCompile Include="SKIV.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="resources\icons\SKIV.ico" />
+    <Image Include="resources\icons\SKIS.ico" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="resources\shaders\imgui_pix_shader.hlsl">

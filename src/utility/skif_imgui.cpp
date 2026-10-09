@@ -20,6 +20,38 @@ bool                  bAutoScrollActive;
 bool                  bScrollbarX;
 bool                  bScrollbarY;
 ImFont*               fontConsolas = nullptr;
+
+// Screenshot-only fork: the settings window is laid out in Segoe UI at fixed
+//   sizes, as this version of Dear ImGui cannot rescale a font on the fly.
+static const float    SKIV_FontSizes [] = { 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 20.0f };
+static ImFont*        SKIV_Fonts [IM_ARRAYSIZE (SKIV_FontSizes)][2] = { };
+
+// Latin-1, Cyrillic, dashes and quotes, the ellipsis, arrows
+static const ImWchar  SKIV_GlyphRanges [] = {
+  0x0020, 0x00FF,
+  0x0400, 0x045F,
+  0x2010, 0x2027,
+  0x2190, 0x2193,
+  0x2212, 0x2212,
+  0
+};
+
+ImFont*
+SKIV_Font (float size, bool semibold)
+{
+  int best = 0;
+
+  for (int i = 0; i < IM_ARRAYSIZE (SKIV_FontSizes); i++)
+    if (fabsf (SKIV_FontSizes [i] - size) < fabsf (SKIV_FontSizes [best] - size))
+      best = i;
+
+  ImFont* font = SKIV_Fonts [best][semibold ? 1 : 0];
+
+  if (font == nullptr)
+      font = SKIV_Fonts [best][0];
+
+  return (font != nullptr) ? font : ImGui::GetIO ().Fonts->Fonts [0];
+}
 std::vector <ImWchar> vFontChineseSimplified;
 std::vector <ImWchar> vFontChineseAll;
 std::vector <ImWchar> vFontCyrillic;
@@ -1124,7 +1156,10 @@ SKIF_ImGui_InitFonts (float fontSize, bool extendedCharsets)
     font_cfg.MergeMode = true;
   }
 
-  std::wstring standardFont = (fontSize >= 18.0F) ? L"Tahoma.ttf" : L"Verdana.ttf"; // L"Tahoma.ttf" : L"Verdana.ttf";
+  std::wstring standardFont = L"segoeui.ttf";
+
+  if (GetFileAttributesW ((SK_GetFontsDir () + LR"(\segoeui.ttf)").c_str ()) == INVALID_FILE_ATTRIBUTES)
+    standardFont = (fontSize >= 18.0F) ? L"Tahoma.ttf" : L"Verdana.ttf"; // L"Tahoma.ttf" : L"Verdana.ttf";
 
   std::error_code ec;
   // Create any missing directories
@@ -1139,6 +1174,9 @@ SKIF_ImGui_InitFonts (float fontSize, bool extendedCharsets)
   {
     font_cfg.MergeMode = true;
   }
+
+  // The UI may be in Russian, so Cyrillic is always loaded up front
+  SKIF_ImGui_LoadFont     (standardFont, fontSize, SKIV_GlyphRanges, &font_cfg);
 
   // Load extended character sets when SKIF is not used as a launcher
   if (extendedCharsets)
@@ -1246,6 +1284,17 @@ SKIF_ImGui_InitFonts (float fontSize, bool extendedCharsets)
     //io.Fonts->AddFontDefault ();
 
     fontConsolas = SKIF_ImGui_LoadFont (L"Consola.ttf", fontSizeConsolas, SK_ImGui_GetGlyphRangesDefaultEx ( ));
+
+    extern float SKIF_ImGui_GlobalDPIScale;
+
+    for (int i = 0; i < IM_ARRAYSIZE (SKIV_FontSizes); i++)
+    {
+      ImFontConfig skiv_cfg = { };
+      float        px       = floorf (SKIV_FontSizes [i] * SKIF_ImGui_GlobalDPIScale * SKIV_FontScale);
+
+      SKIV_Fonts [i][0] = SKIF_ImGui_LoadFont (L"segoeui.ttf", px, SKIV_GlyphRanges, &skiv_cfg);
+      SKIV_Fonts [i][1] = SKIF_ImGui_LoadFont (L"seguisb.ttf", px, SKIV_GlyphRanges, &skiv_cfg);
+    }
     //fontConsolas = SKIF_ImGui_LoadFont ((fontDir / L"NotoSansMono-Regular.ttf"), fontSize/* - 4.0f*/, SK_ImGui_GetGlyphRangesDefaultEx());
 }
 

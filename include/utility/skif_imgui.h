@@ -91,3 +91,8 @@ extern PopupState  PopupMessageInfo;  // App Mode: show an informational message
 
 // Fonts
 extern ImFont* fontConsolas;
+ImFont*        SKIV_Font (float size, bool semibold = false);
+
+// The settings window keeps the mockup layout (800 x 560), but its text is
+//   this much larger than in the mockup: 1:1 was too small to read
+constexpr float SKIV_FontScale = 1.3f;

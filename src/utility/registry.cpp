@@ -372,6 +372,12 @@ SKIF_RegistrySettings::SKIF_RegistrySettings (void)
   if (regKVStyle.hasData(&hKey))
     iStyle  =  iStyleTemp  =   regKVStyle                  .getData (&hKey);
 
+  if (regKVLanguage.hasData(&hKey))
+    iLanguage              =   regKVLanguage               .getData (&hKey);
+
+  if (regKVSnippingHDR.hasData(&hKey))
+    _SnippingTonemapsHDR   =   regKVSnippingHDR            .getData (&hKey);
+
   if (regKVLogging.hasData(&hKey))
     iLogging               =   regKVLogging                .getData (&hKey);
 
