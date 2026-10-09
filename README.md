@@ -1,84 +1,47 @@
-# <img src="https://sk-data.special-k.info/artwork/strangorth/24.png" width="24" alt="Animated eclipse icon for Special K Image Viewer (SKIV)"> Special K Image Viewer (SKIV)
-![Screenshot of the app](https://sk-data.special-k.info/artwork/screens/skiv_initial.png)
+# SKIS — Special K Image Screenshot
 
-An experimental companion image viewer for the [Special K Injection Frontend](https://github.com/SpecialKO/SKIF) (SKIF).
-Is also intended to be able to function separately, although not all planned features may be available when used in such a form.
+A screenshot tool for Windows that gets HDR right.
 
-The intention is to build a simple yet advanced screenshot/image viewer tool that handles HDR images properly as well as function as a testbed for features and functionality for the main Special K project.
+Press a hotkey, select an area, and the screenshot is on the clipboard, looking the same as it does on screen, even when the monitor runs in HDR.
 
-New versions will probably be distributed through their own packaged installer once the project reaches more maturity.
+![SKIS settings](docs/settings.png)
 
 ## Features
 
-- Quick and simple image viewer
-- HDR support
-- HDR visualization
-- Drag-n-drop support of both local and internet image links
-- Copy/paste support
-- Desktop/region screenshot capture
+- **Region, window or whole screen**, each on its own global hotkey.
+- **All monitors at once.** When selecting a region, every monitor freezes and dims together, and the frame can be drawn on any of them.
+- **HDR screenshots that paste anywhere.** Captures of an HDR monitor are tone-mapped to SDR, so they look right in any app. They can also be kept as HDR PNG, or the choice can be made per screenshot.
+- **Clipboard first.** Optionally also saves a PNG to a folder, named by a pattern such as `<app>_<date>_<time>`.
+- **HDR on/off** for the monitor under the cursor, on a hotkey.
+- **Stays out of the way** in the notification area, and can start with Windows.
+- **English and Russian** interface, following the Windows display language.
 
-## Format support
+## Default hotkeys
 
-* Ultra HDR (.jpg)
-* AVIF* (.avif)
-* JPEG XL (.jxl)
-* JPEG XR (.jxr)
-* OpenEXR (.exr)
-* Radiance HDR (.hdr)
-* PNG* (+ HDR support)
-* JPEG (.jpg)
-* WebP*
-* PSD
-* GIF*
-* BMP
-* TIFF
-* DDS
+| Hotkey | Action |
+| --- | --- |
+| `Ctrl` + `Win` + `Shift` + `O` | Capture a region |
+| `Ctrl` + `Win` + `Shift` + `I` | Capture the active window |
+| `Ctrl` + `Win` + `Shift` + `P` | Capture the screen under the cursor |
+| `Ctrl` + `Win` + `Shift` + `H` | Turn HDR on or off for the monitor under the cursor |
 
-*\* No animation support.*
+Every hotkey can be changed or turned off in the settings. While selecting a region, `Ctrl` + `S` toggles saving a file and `Esc` cancels.
 
-## Command line arguments
+## Building
 
-| Argument&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp; | What it does |
-| ------------------------------: | -------------- |
-| `<empty>`                       | Launches the app.                         |
-| `"<path-to-local-image-file>"`  | Opens the provided image path in the app. |
-| `"<link-to-online-image-file>"` | Opens the provided image link in the app. |
-| `/OpenFileDialog`               | Open the file dialog of the app.          |
-| `/Exit`                         | Closes all running instances of the app.  |
+Requirements: Visual Studio 2022 with the C++ desktop workload, the Windows 11 SDK and ATL.
 
-## Keyboard shortcuts
+```
+msbuild SKIV.vcxproj -t:restore -p:RestorePackagesConfig=true
+msbuild SKIV.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PostBuildEventUseInBuild=false
+```
 
-| Shortcut&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp; | What it does |
-| ------------------------: | -------------- |
-| `Ctrl+A` *or* `Ctrl+O`    | Open a new image.                                       |
-| `Ctrl+D`                  | Toggle image details.                                   |
-| `Ctrl+1`                  | Image Scaling: View actual size (None / 1:1)            |
-| `Ctrl+2`*or* `Ctrl+0`     | Image Scaling: Zoom to fit (Fit)                        |
-| `Ctrl+3`                  | Image Scaling: Fill the window (Fill)                   |
-| `Ctrl+W`                  | Close the currently opened image                        |
-| `Ctrl+E`                  | Browse folder / Open in File Explorer                   |
-| `Ctrl+Windows+Shift+P`    | Capture a screenshot of a region of the display.        |
-| `Ctrl+Windows+Shift+O`    | Capture a screenshot of the display.                    |
-| `F1`                      | Switch to the Viewer tab.                               |
-| `F2`                      | Switch to the Settings tab.                             |
-| `F6`                      | Appearance: Toggles DPI scaling.                        |
-| `F7`                      | Appearance: Cycles between available color themes.      |
-| `F8`                      | Appearance: Toggles borders.                            |
-| `F9`                      | Appearance: Toggles color depth.                        |
-| `F11` *or* `Ctrl+F`       | Toggle fullscreen mode.                                 |
-| `Esc` *or* `Ctrl+Q`       | Closes the app.                                         |
-| `Ctrl+N`                  | Minimizes the app.                                      |
+The result is `Builds\SKIS.exe`. If MSBuild reports a missing MSVC toolset version, add `-p:VCToolsVersion=<installed version>`.
 
-## Third-party code
+To have SKIS start with Windows, turn on **Start with Windows** in the settings.
 
-* Uses [Dear ImGui](https://github.com/ocornut/imgui), licensed under [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt).
-* Uses [ImGuiNotify](https://github.com/TyomaVader/ImGuiNotify), licensed under [MIT](https://github.com/TyomaVader/ImGuiNotify/blob/Dev/LICENSE).
-* Uses [DirectX Texture Library](http://go.microsoft.com/fwlink/?LinkId=248926), licensed under [MIT](https://github.com/microsoft/DirectXTex/blob/main/LICENSE).
-* Uses [Font Awesome Free v6.2.1](https://fontawesome.com/v6/download), licensed under [SIL OFL 1.1 License](https://scripts.sil.org/OFL).
-* Uses [Plog](https://github.com/SergiusTheBest/plog), licensed under [MIT](https://github.com/SergiusTheBest/plog/blob/master/LICENSE).
-* Uses [HybridDetect](https://github.com/GameTechDev/HybridDetect/), licensed under [MIT](https://github.com/GameTechDev/HybridDetect/blob/main/LICENSE.md).
-* Uses [zlib](https://github.com/madler/zlib), licensed under [the zlib license](https://raw.githubusercontent.com/madler/zlib/develop/LICENSE).
-* Uses [OpenEXR](https://github.com/AcademySoftwareFoundation/openexr), licensed under [BSD](https://raw.githubusercontent.com/AcademySoftwareFoundation/openexr/main/LICENSE.md).
-* Uses code from [win32-darkmode](https://github.com/ysc3839/win32-darkmode/), licensed under [MIT](https://github.com/ysc3839/win32-darkmode/blob/master/LICENSE).
-* Optionally uses [libjxl](https://github.com/libjxl/), licensed under [BSD](https://raw.githubusercontent.com/libjxl/libjxl/main/LICENSE).
-* Includes various snippets of code from [Stack Overflow](https://stackoverflow.com/), licensed under [Creative Commons Attribution-ShareAlike](https://stackoverflow.com/help/licensing).
+## Credits
+
+SKIS is based on [Special K Image Viewer](https://github.com/SpecialKO/SKIV) by Aemony and the Special K team.
+
+Licensed under the MIT License, see [LICENSE](LICENSE). Third-party components are listed in [LICENSE-3RD-PARTY](LICENSE-3RD-PARTY).
