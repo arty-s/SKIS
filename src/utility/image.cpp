@@ -33,6 +33,8 @@
 #include <DirectXPackedVector.h>
 
 skiv_image_desktop_s SKIV_DesktopImage;
+std::vector <skiv_image_desktop_s>
+                     SKIV_DesktopImages; // All monitors, captured at the start of a region snip
 
 extern std::wstring defaultHDRFileExt;
 extern std::wstring defaultSDRFileExt;
@@ -3355,24 +3357,18 @@ SKIV_Image_SaveToDisk_HDR (const DirectX::Image& image, const wchar_t* wszFileNa
                       wszImplicitFileName, nullptr, SK_WIC_SetMaximumQuality);
 }
 
-HRESULT
-SKIV_Image_CaptureDesktop (DirectX::ScratchImage& image, POINT point, int flags)
+// Enumerates the outputs attached to the desktop
+//   (and their descriptions) across all adapters
+struct skiv_desktop_output_s {
+  CComPtr <IDXGIOutput> pOutput;
+  DXGI_OUTPUT_DESC      out_desc  = { };
+  DXGI_OUTPUT_DESC1     out_desc1 = { };
+};
+
+static std::vector <skiv_desktop_output_s>
+SKIV_Image_EnumDesktopOutputs (void)
 {
-  SKIV_DesktopImage.clear ();
-
-  std::ignore = image;
-  std::ignore = flags;
-
-  HRESULT res = E_NOT_VALID_STATE;
-
-  auto pDevice =
-    SKIF_D3D11_GetDevice ();
-
-  if (! pDevice)
-  {
-    PLOG_ERROR << "No D3D11 device is available for Desktop Duplication.";
-    return res;
-  }
+  std::vector <skiv_desktop_output_s> outputs;
 
   CComPtr <IDXGIFactory> pFactory;
   CreateDXGIFactory (IID_IDXGIFactory, (void **)&pFactory.p);
@@ -3380,15 +3376,11 @@ SKIV_Image_CaptureDesktop (DirectX::ScratchImage& image, POINT point, int flags)
   if (! pFactory)
   {
     PLOG_ERROR << "DXGI Factory creation failed.";
-    return E_NOTIMPL;
+    return outputs;
   }
 
   CComPtr <IDXGIAdapter> pAdapter;
   UINT                  uiAdapter = 0;
-
-  CComPtr <IDXGIOutput> pCursorOutput;
-  DXGI_OUTPUT_DESC      out_desc = {};
-  DXGI_OUTPUT_DESC1     out_desc1= {};
 
   while (SUCCEEDED (pFactory->EnumAdapters (uiAdapter++, &pAdapter.p)))
   {
@@ -3397,35 +3389,48 @@ SKIV_Image_CaptureDesktop (DirectX::ScratchImage& image, POINT point, int flags)
 
     while (SUCCEEDED (pAdapter->EnumOutputs (uiOutput++, &pOutput)))
     {
-      pOutput->GetDesc (&out_desc);
+      skiv_desktop_output_s output;
+      output.pOutput = pOutput;
+
+      pOutput->GetDesc (&output.out_desc);
 
       CComQIPtr <IDXGIOutput6>
           pOutput6 (pOutput);
       if (pOutput6.p != nullptr)
       {
-        pOutput6->GetDesc1 (&out_desc1);
+        pOutput6->GetDesc1 (&output.out_desc1);
       }
 
-      if (out_desc.AttachedToDesktop && PtInRect (&out_desc.DesktopCoordinates, point))
-      {
-        pCursorOutput = pOutput;
-        break;
-      }
+      if (output.out_desc.AttachedToDesktop)
+        outputs.push_back (output);
 
       pOutput = nullptr;
     }
 
-    if (pCursorOutput != nullptr)
-      break;
-
     pAdapter = nullptr;
   }
 
-  if (! pCursorOutput)
+  return outputs;
+}
+
+// Captures the current image of a single desktop output
+static HRESULT
+SKIV_Image_CaptureOutput (const skiv_desktop_output_s& output, skiv_image_desktop_s& desktop)
+{
+  desktop.clear ();
+
+  auto pDevice =
+    SKIF_D3D11_GetDevice ();
+
+  if (! pDevice)
   {
-    PLOG_ERROR << "Unable to find an attached desktop output under the cursor.";
-    return E_UNEXPECTED;
+    PLOG_ERROR << "No D3D11 device is available for Desktop Duplication.";
+    return E_NOT_VALID_STATE;
   }
+
+  IDXGIOutput*             pCursorOutput = output.pOutput.p;
+  const DXGI_OUTPUT_DESC&  out_desc      = output.out_desc;
+  const DXGI_OUTPUT_DESC1& out_desc1     = output.out_desc1;
 
   CComQIPtr <IDXGIOutput5> pOutput5 (pCursorOutput);
   CComQIPtr <IDXGIOutput1> pOutput1; // Always DXGI_FORMAT_B8G8R8A8_UNORM
@@ -3465,7 +3470,7 @@ SKIV_Image_CaptureDesktop (DirectX::ScratchImage& image, POINT point, int flags)
   static constexpr int num_sdr_formats = 4;
   static constexpr int num_all_formats = 7;
 
-  HMONITOR hMon = MonitorFromPoint (point, MONITOR_DEFAULTTONEAREST);
+  HMONITOR hMon = out_desc.Monitor;
 
   SKIF_Util_UpdateMonitors ();
 
@@ -3604,29 +3609,84 @@ SKIV_Image_CaptureDesktop (DirectX::ScratchImage& image, POINT point, int flags)
     srvDesc.Texture2D.MostDetailedMip = 0;
 
   pDevCtx->CopyResource             (pDesktopImage, pDuplicatedTex);
-  pDevice->CreateShaderResourceView (pDesktopImage, &srvDesc, &SKIV_DesktopImage._srv);
+  pDevice->CreateShaderResourceView (pDesktopImage, &srvDesc, &desktop._srv);
 
-  SKIV_DesktopImage._rotation    = dup_desc.Rotation;
-  SKIV_DesktopImage._desktop_pos =
+  desktop._rotation    = dup_desc.Rotation;
+  desktop._desktop_pos =
     ImVec2 (static_cast <float> (out_desc.DesktopCoordinates.left),
             static_cast <float> (out_desc.DesktopCoordinates.top));
-  SKIV_DesktopImage._max_display_nits = out_desc1.MaxLuminance;
-  SKIV_DesktopImage._sdr_display_nits = SKIF_Util_GetSDRWhiteLevel (out_desc1.Monitor);
+  desktop._monitor          = hMon;
+  desktop._max_display_nits = out_desc1.MaxLuminance;
+  desktop._sdr_display_nits = SKIF_Util_GetSDRWhiteLevel (out_desc1.Monitor);
 
-  PLOG_VERBOSE << "Max Display Nits : " << SKIV_DesktopImage._max_display_nits;
-  PLOG_VERBOSE << "SDR Display Nits : " << SKIV_DesktopImage._sdr_display_nits;
+  PLOG_VERBOSE << "Max Display Nits : " << desktop._max_display_nits;
+  PLOG_VERBOSE << "SDR Display Nits : " << desktop._sdr_display_nits;
 
   pDevCtx->Flush ();
 
   pDuplicator->ReleaseFrame ();
 
-  if (! SKIV_DesktopImage.process ())
+  if (! desktop.process ())
   {
     PLOG_ERROR << "Failed to process desktop image.";
     return E_FAIL;
   }
 
   return S_OK;
+}
+
+HRESULT
+SKIV_Image_CaptureDesktop (DirectX::ScratchImage& image, POINT point, int flags)
+{
+  SKIV_DesktopImage.clear ();
+
+  std::ignore = image;
+  std::ignore = flags;
+
+  for (const auto& output : SKIV_Image_EnumDesktopOutputs ())
+  {
+    if (PtInRect (&output.out_desc.DesktopCoordinates, point))
+      return SKIV_Image_CaptureOutput (output, SKIV_DesktopImage);
+  }
+
+  PLOG_ERROR << "Unable to find an attached desktop output under the cursor.";
+  return E_UNEXPECTED;
+}
+
+HRESULT
+SKIV_Image_CaptureAllDesktops (std::vector <skiv_image_desktop_s>& desktops)
+{
+  desktops.clear ();
+
+  for (const auto& output : SKIV_Image_EnumDesktopOutputs ())
+  {
+    skiv_image_desktop_s desktop;
+
+    HRESULT hr =
+      SKIV_Image_CaptureOutput (output, desktop);
+
+    if (SUCCEEDED (hr))
+      desktops.push_back (desktop);
+    else
+      PLOG_WARNING.printf ("Failed to capture the desktop of output %ws (HRESULT=%x)", output.out_desc.DeviceName, hr);
+  }
+
+  return (desktops.empty () ? E_UNEXPECTED : S_OK);
+}
+
+bool
+SKIV_Image_SelectDesktop (HMONITOR monitor)
+{
+  for (const auto& desktop : SKIV_DesktopImages)
+  {
+    if (desktop._monitor == monitor)
+    {
+      SKIV_DesktopImage = desktop;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void

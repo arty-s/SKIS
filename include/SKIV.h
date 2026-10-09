@@ -59,6 +59,7 @@ constexpr UINT           WM_SKIF_FILE_DIALOG    = WM_USER + 0x1030; // Opens a n
 constexpr UINT           WM_SKIF_SNIP_WINDOW    = WM_USER + 0x1031; // Capture a window
 constexpr UINT           WM_SKIF_SNIP_REGION    = WM_USER + 0x1032; // Capture a region
 constexpr UINT           WM_SKIF_SNIP_SCREEN    = WM_USER + 0x1033; // Capture a screen
+constexpr UINT           WM_SKIF_SNIP_FOLLOW    = WM_USER + 0x1034; // Move an ongoing region capture to the monitor under the cursor
 
 // Thread workers
 constexpr UINT           WM_SKIF_GAMEPAD        = WM_USER + 0x2049; // Gamepad input worker detected new input

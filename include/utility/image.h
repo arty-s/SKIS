@@ -239,6 +239,7 @@ struct skiv_image_desktop_s {
   bool                               _hdr_image        =   false;
   ImVec2                             _resolution       = ImVec2 (0.0f, 0.0f);
   ImVec2                             _desktop_pos      = ImVec2 (0.0f, 0.0f);
+  HMONITOR                           _monitor          = NULL;
   DXGI_MODE_ROTATION                 _rotation         = DXGI_MODE_ROTATION_UNSPECIFIED;
   float                              _max_display_nits = 1000.0f;
   float                              _sdr_display_nits = 240.0f;
@@ -291,10 +292,16 @@ struct skiv_image_desktop_s {
     _hdr_image        =   false;
     _resolution       = ImVec2 (0.0f, 0.0f);
     _desktop_pos      = ImVec2 (0.0f, 0.0f);
+    _monitor          = NULL;
     _max_display_nits = 1000.0f;
     _rotation         = DXGI_MODE_ROTATION_UNSPECIFIED;
   }
 };
+
+// Captures every desktop output at once (used to freeze all monitors during region snipping)
+HRESULT SKIV_Image_CaptureAllDesktops (std::vector <skiv_image_desktop_s>& desktops);
+// Makes the already captured image of the given monitor the active SKIV_DesktopImage
+bool    SKIV_Image_SelectDesktop      (HMONITOR monitor);
 
 // Image Directory
 

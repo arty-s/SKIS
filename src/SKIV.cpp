@@ -86,6 +86,7 @@ bool  RecreateSwapChains        = false;
 bool  RecreateSwapChainsPending = false;
 bool  RecreateWin32Windows      = false;
 bool  RepositionSKIF            = false;
+bool  snipFollowPending         = false; // WM_SKIF_SNIP_FOLLOW has been posted but not yet handled
 bool  RespectMonBoundaries      = false;
 bool  changedHiDPIScaling       = false;
 bool  invalidateFonts           = false;
@@ -554,7 +555,7 @@ void SKIF_Shell_CreateUpdateNotifyMenu (void)
   //AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_RUN_UPDATER,     L"Check for updates...");
 
     AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_OPEN,            L"Open");
+    AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_OPEN,            L"Settings");
     AppendMenu (hMenu, MF_STRING, SKIF_NOTIFY_EXIT,            L"Exit");
   }
 }
@@ -1144,9 +1145,22 @@ wWinMain ( _In_     HINSTANCE hInstance,
   // Process cmd line arguments (1/4) -- this sets up the necessary variables
   SKIF_Startup_ProcessCmdLineArgs (lpCmdLine);
 
+  // Screenshot-only fork: there is no image viewer, so never open a file
+  //   and always start in the system tray (unless asked to capture or exit)
+  _Signal._FilePath.clear ();
+
+  if (! _Signal.Quit          &&
+      ! _Signal.CaptureWindow &&
+      ! _Signal.CaptureRegion &&
+      ! _Signal.CaptureScreen)
+    _Signal.Minimize = true;
+
   // This constructs these singleton objects
   static SKIF_CommonPathsCache& _path_cache = SKIF_CommonPathsCache::GetInstance ( ); // Does not rely on anything
   static SKIF_RegistrySettings& _registry   = SKIF_RegistrySettings::GetInstance ( ); // Does not rely on anything
+
+  // Screenshot-only fork: closing the window always sends SKIV to the tray
+  _registry.bCloseToTray = true;
 
   // Process cmd line arguments (2/4)
   hWndOrigForeground = // Remember what third-party window is currently in the foreground
@@ -2100,6 +2114,24 @@ wWinMain ( _In_     HINSTANCE hInstance,
         }
       }
 
+      // Screenshot-only fork: there is no image viewer. The window only ever
+      //   shows the settings, and leaving them sends SKIV back to the tray.
+      if (! _registry._SnippingMode && ! _registry._SnippingModeExit)
+      {
+        dragDroppedFilePath.clear ();
+
+        if (SKIF_Tab_ChangeTo == UITab_Viewer)
+        {
+          SKIF_Tab_ChangeTo = UITab_None;
+
+          if (! SKIF_isTrayed)
+            PostMessage (SKIF_Notify_hWnd, WM_SKIF_MINIMIZE, 0x0, 0x0);
+        }
+
+        else if (SKIF_Tab_Selected == UITab_Viewer && SKIF_Tab_ChangeTo == UITab_None)
+          SKIF_Tab_ChangeTo = UITab_Settings;
+      }
+
       allowShortcutCtrlA = true;
 
 
@@ -2127,6 +2159,10 @@ wWinMain ( _In_     HINSTANCE hInstance,
         extern HWND hwndTopBeforeSnip;
         extern bool iconicBeforeSnip;
         extern bool trayedBeforeSnip;
+
+        // Release the frozen captures of all monitors
+        extern std::vector <skiv_image_desktop_s> SKIV_DesktopImages;
+        SKIV_DesktopImages.clear ();
 
         SetForegroundWindow (hwndBeforeSnip);
 
@@ -2182,6 +2218,29 @@ wWinMain ( _In_     HINSTANCE hInstance,
 #pragma region UI: Snipping Mode
 
         extern skiv_image_desktop_s SKIV_DesktopImage;
+
+        // Follow the cursor across monitors: the region snip only covers the
+        //   monitor it was started on, so when the cursor moves to another one
+        //     (and no selection is being dragged), ask the window procedure to
+        //       recapture that monitor and move the snipping window over to it.
+        //         This must happen between frames, same as entering snipping mode,
+        //           otherwise ImGui pushes the old window size back to the OS window.
+        extern bool snipFollowPending;
+
+        if (last_snip_state && ! snipFollowPending && ! ImGui::IsMouseDown (ImGuiMouseButton_Left))
+        {
+          POINT ptCursor = { };
+
+          if (GetCursorPos (&ptCursor))
+          {
+            if (MonitorFromPoint  (ptCursor,        MONITOR_DEFAULTTONEAREST) !=
+                MonitorFromWindow (SKIF_ImGui_hWnd, MONITOR_DEFAULTTONEAREST))
+            {
+              snipFollowPending = true;
+              PostMessage (SKIF_Notify_hWnd, WM_SKIF_SNIP_FOLLOW, 0x0, 0x0);
+            }
+          }
+        }
 
         ImVec2 resolution =
           SKIV_DesktopImage._resolution;
@@ -3535,6 +3594,90 @@ wWinMain ( _In_     HINSTANCE hInstance,
 
 #pragma endregion
 
+#pragma region UI: Snipping Mode Frozen Monitors
+
+    // While snipping a region, cover every monitor with its frozen and dimmed
+    //   capture so that all monitors enter snipping mode together, like in
+    //     Snipping Tool. The snipping window itself sits above these and moves
+    //       to whichever monitor the cursor is on (see WM_SKIF_SNIP_FOLLOW).
+    //         The monitor the snipping window is on is covered as well, so that
+    //           the live desktop does not flash when the snipping window leaves.
+    {
+      extern std::vector <skiv_image_desktop_s> SKIV_DesktopImages;
+
+      if (_registry._SnippingMode && ! _registry._SnippingModeExit)
+      {
+        static ImGuiWindowClass SKIV_FrozenMonitorWindow;
+        SKIV_FrozenMonitorWindow.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge       |
+                                                            ImGuiViewportFlags_NoTaskBarIcon     |
+                                                            ImGuiViewportFlags_NoDecoration      |
+                                                            ImGuiViewportFlags_NoFocusOnAppearing|
+                                                            ImGuiViewportFlags_NoFocusOnClick    |
+                                                            ImGuiViewportFlags_TopMost;
+
+        int idx = 0;
+
+        for (const auto& desktop : SKIV_DesktopImages)
+        {
+          if (desktop._srv == nullptr)
+            continue;
+
+          ImVec2 size = desktop._resolution;
+
+          if (desktop._rotation == DXGI_MODE_ROTATION_ROTATE90 ||
+              desktop._rotation == DXGI_MODE_ROTATION_ROTATE270)
+            std::swap (size.x, size.y);
+
+          char szWindowName [64] = { };
+          snprintf (szWindowName, 64, "###SKIV_FrozenMonitor%d", idx++);
+
+          ImGui::SetNextWindowClass (&SKIV_FrozenMonitorWindow);
+          ImGui::SetNextWindowPos   (desktop._desktop_pos);
+          ImGui::SetNextWindowSize  (size);
+
+          ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding,    ImVec2 (0.0f, 0.0f));
+          ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
+          ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding,   0.0f);
+
+          if (ImGui::Begin (szWindowName, nullptr, ImGuiWindowFlags_NoDecoration          |
+                                                   ImGuiWindowFlags_NoMove                |
+                                                   ImGuiWindowFlags_NoSavedSettings       |
+                                                   ImGuiWindowFlags_NoFocusOnAppearing    |
+                                                   ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                                   ImGuiWindowFlags_NoNav                 |
+                                                   ImGuiWindowFlags_NoDocking             |
+                                                   ImGuiWindowFlags_NoScrollWithMouse))
+          {
+            ImGuiViewport* vp = ImGui::GetWindowViewport ();
+
+            static const ImVec2 srgb_uv0 = ImVec2 (0, 0),
+                                srgb_uv1 = ImVec2 (1, 1),
+                                hdr_uv0  = ImVec2 (-1024.0f, -1024.0f), // HDR formats
+                                hdr_uv1  = ImVec2 (-2048.0f, -2048.0f); // HDR formats
+
+            bool HDR = (desktop._hdr_image && vp != nullptr &&
+                        SKIF_ImGui_IsViewportHDR ((HWND)vp->PlatformHandle));
+
+            SKIF_ImGui_OptImage ( desktop._srv,
+                                  desktop._resolution, HDR ? hdr_uv0 : srgb_uv0,
+                                                       HDR ? hdr_uv1 : srgb_uv1,
+                                    ImVec4 (1,1,1,1),
+                                    ImVec4 (0,0,0,0), desktop._rotation );
+
+            // Same slightly dark overlay as the snipping window
+            ImGui::GetWindowDrawList ()->AddRectFilled (desktop._desktop_pos,
+                                                        desktop._desktop_pos + size, IM_COL32 (0, 0, 0, 20));
+          }
+
+          ImGui::End ( );
+
+          ImGui::PopStyleVar (3);
+        }
+      }
+    }
+
+#pragma endregion
+
     // Do stuff when focus is changed
     static int
         AppHasFocus  = -1;
@@ -3668,6 +3811,25 @@ wWinMain ( _In_     HINSTANCE hInstance,
     }
 
     ImGui::UpdatePlatformWindows ( ); // This creates all ImGui related windows, including the main application window, and also updates the window and swapchain sizes etc
+
+    // Keep the snipping window above the frozen monitor windows, as newly
+    //   created (topmost) frozen monitor windows end up above it
+    if (_registry._SnippingMode && SKIF_ImGui_hWnd != NULL)
+    {
+      for (HWND hWndAbove  = GetWindow (SKIF_ImGui_hWnd, GW_HWNDPREV);
+                hWndAbove != NULL;
+                hWndAbove  = GetWindow (hWndAbove,       GW_HWNDPREV))
+      {
+        DWORD dwPid = 0;
+        GetWindowThreadProcessId (hWndAbove, &dwPid);
+
+        if (dwPid == GetCurrentProcessId () && IsWindowVisible (hWndAbove))
+        {
+          SetWindowPos (SKIF_ImGui_hWnd, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE);
+          break;
+        }
+      }
+    }
 
     // Update the title of the main app window to indicate we're loading...
     // This is a fix for the window title being set wrong on launch when we started loading an image
@@ -4445,9 +4607,21 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         app_names = SKIV_GetApplicationNames (hWndBelowCursor);
       }
 
+      extern std::vector <skiv_image_desktop_s> SKIV_DesktopImages;
+      SKIV_DesktopImages.clear ();
+
       DirectX::ScratchImage captured_img;
-      HRESULT hr =
-        SKIV_Image_CaptureDesktop (captured_img, capture_point);
+      HRESULT hr = E_UNEXPECTED;
+
+      // Region snips freeze every monitor at once, so that the
+      //   selection can move between them like in Snipping Tool
+      if (mode == CaptureMode_Region &&
+          SUCCEEDED (SKIV_Image_CaptureAllDesktops (SKIV_DesktopImages)) &&
+          SKIV_Image_SelectDesktop (MonitorFromPoint (capture_point, MONITOR_DEFAULTTONEAREST)))
+        hr = S_OK;
+
+      else
+        hr = SKIV_Image_CaptureDesktop (captured_img, capture_point);
 
       if (SUCCEEDED (hr))
       {
@@ -4834,6 +5008,51 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
       _EnterSnippingMode (CaptureMode_Screen);
       break;
 
+    case WM_SKIF_SNIP_FOLLOW:
+      snipFollowPending = false;
+
+      if (_registry._SnippingMode && ! _registry._SnippingModeExit)
+      {
+        POINT ptCursor = { };
+
+        if (GetCursorPos (&ptCursor))
+        {
+          HMONITOR hMonCursor = MonitorFromPoint  (ptCursor,        MONITOR_DEFAULTTONEAREST);
+          HMONITOR hMonSnip   = MonitorFromWindow (SKIF_ImGui_hWnd, MONITOR_DEFAULTTONEAREST);
+
+          if (hMonCursor != hMonSnip)
+          {
+            PLOG_VERBOSE << "Cursor moved to another monitor during snipping, switching...";
+
+            // Prefer the frozen image captured at the start of the snip,
+            //   and only capture the monitor anew if there is none for it
+            DirectX::ScratchImage captured_img;
+            HRESULT hr =
+              SKIV_Image_SelectDesktop (hMonCursor) ? S_OK
+                                                    : SKIV_Image_CaptureDesktop (captured_img, ptCursor);
+
+            if (SUCCEEDED (hr))
+            {
+              SKIF_ImGui_SetFullscreen (SKIF_ImGui_hWnd, true, hMonCursor);
+              SetWindowPos             (SKIF_ImGui_hWnd, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE);
+              UpdateWindow             (SKIF_ImGui_hWnd);
+
+              ImGui::GetIO ().MouseDown         [0] = false;
+              ImGui::GetIO ().MouseDownDuration [0] = -1.0f;
+            }
+
+            else
+            {
+              PLOG_ERROR << "Failed to recapture the desktop (HRESULT=" << hr << ")";
+
+              _registry._SnippingMode     = false;
+              _registry._SnippingModeExit = true;
+            }
+          }
+        }
+      }
+      break;
+
     case WM_SKIF_RUN_UPDATER:
       SKIF_Updater::GetInstance ( ).CheckForUpdates ( );
       break;
@@ -5073,7 +5292,8 @@ SKIF_Notify_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
           PostMessage (SKIF_Notify_hWnd, WM_SKIF_SNIP_SCREEN, 0, 0);
           break;
         case SKIF_NOTIFY_OPEN:
-          PostMessage (SKIF_Notify_hWnd, WM_SKIF_FILE_DIALOG, 0, 0);
+          // Screenshot-only fork: "Settings" instead of opening an image
+          PostMessage (SKIF_Notify_hWnd, WM_SKIF_RESTORE, 0, 0);
           break;
         case SKIF_NOTIFY_EXIT:
           if (SKIF_ImGui_hWnd != NULL)
