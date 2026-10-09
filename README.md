@@ -16,6 +16,12 @@ Press a hotkey, select an area, and the screenshot is on the clipboard, looking 
 - **Stays out of the way** in the notification area, and can start with Windows.
 - **English and Russian** interface, following the Windows display language.
 
+## Download
+
+Get `SKIS.exe` from the [latest release](https://github.com/arty-s/SKIS/releases/latest). It is a single file with nothing to install: put it in any folder and run it. SKIS starts in the notification area; open the settings from its icon there.
+
+Windows 10 or 11, 64-bit. The file is not code-signed, so SmartScreen may ask for confirmation on the first launch.
+
 ## Default hotkeys
 
 | Hotkey | Action |
