@@ -5108,8 +5108,36 @@ SKIF_WndProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_SKIF_RESTORE:
       if (SKIF_ImGui_hWnd != NULL)
       {
-        if (! SKIF_isTrayed && ! IsIconic (SKIF_ImGui_hWnd))
-          RepositionSKIF            = true;
+        // Screenshot-only fork: SKIV always starts in the tray (created minimized),
+        //   so the window has never been sized and placed by the viewer. Show the
+        //     settings at the regular size, centered on the monitor of the cursor.
+        POINT ptCursor = { };
+        GetCursorPos (&ptCursor);
+
+        MONITORINFO minfo = { .cbSize = sizeof (MONITORINFO) };
+        if (GetMonitorInfo (MonitorFromPoint (ptCursor, MONITOR_DEFAULTTONEAREST), &minfo))
+        {
+          const RECT& work = minfo.rcWork;
+
+          int width  = std::min (static_cast <int> (SKIF_vecRegularModeDefault.x * SKIF_ImGui_GlobalDPIScale), static_cast <int> (work.right  - work.left));
+          int height = std::min (static_cast <int> (SKIF_vecRegularModeDefault.y * SKIF_ImGui_GlobalDPIScale), static_cast <int> (work.bottom - work.top));
+          int left   = work.left + ((work.right  - work.left) - width)  / 2;
+          int top    = work.top  + ((work.bottom - work.top)  - height) / 2;
+
+          WINDOWPLACEMENT wp = { .length = sizeof (WINDOWPLACEMENT) };
+          GetWindowPlacement (SKIF_ImGui_hWnd, &wp);
+          wp.rcNormalPosition = { left, top, left + width, top + height };
+          SetWindowPlacement (SKIF_ImGui_hWnd, &wp);
+
+          if (ImGuiViewportP* vp = (ImGuiViewportP *) ImGui::FindViewportByPlatformHandle ((void *)SKIF_ImGui_hWnd))
+          {
+            if (vp->Window != nullptr)
+            {
+              ImGui::SetWindowSize (vp->Window, ImVec2 (static_cast <float> (width), static_cast <float> (height)));
+              ImGui::SetWindowPos  (vp->Window, ImVec2 (static_cast <float> (left),  static_cast <float> (top)));
+            }
+          }
+        }
 
         if (SKIF_isTrayed)
         {   SKIF_isTrayed           = false;
